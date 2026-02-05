@@ -72,20 +72,35 @@ async function enrichPlayerProfile(espnLink: string, existingFields: any): Promi
       'ESPN Updates': ''
     };
 
-    // Extract team
+    // Extract team - get full team name from href
     const team = await page.evaluate(() => {
-      const teamLink = (document as any).querySelector('.PlayerHeader__Team a');
-      return teamLink?.textContent?.trim() || '';
+      const teamLink = (document as any).querySelector('a[data-clubhouse-uid]');
+      if (!teamLink) return '';
+      const href = teamLink.href || '';
+      // Extract full team name from URL like '/team/_/name/mil/milwaukee-bucks'
+      const match = href.match(/\/name\/[^\/]+\/([^?\/]+)/);
+      if (match) {
+        // Convert 'milwaukee-bucks' to 'Milwaukee Bucks'
+        return match[1].split('-').map((word: string) => 
+          word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+      }
+      return teamLink.textContent?.trim() || '';
     }).catch(() => '');
-    if (team) enrichedData['ESPN Team'] = team;
+    if (team) {
+      enrichedData['ESPN Team'] = team;
+      console.log(`    📊 Team: ${team}`);
+    }
 
-    // Extract headshot
+    // Extract headshot - look for image with /i/headshots/ in src
     const headshot = await page.evaluate(() => {
-      const img = (document as any).querySelector('.PlayerHeader__Headshot img, .Image__Wrapper img');
-      return img?.src || '';
+      const imgs = Array.from((document as any).querySelectorAll('img'));
+      const headshotImg = imgs.find((img: any) => img.src && img.src.includes('/i/headshots/'));
+      return headshotImg ? (headshotImg as HTMLImageElement).src : '';
     }).catch(() => '');
-    if (headshot && !headshot.includes('default')) {
+    if (headshot) {
       enrichedData['ESPN Headshot'] = headshot;
+      console.log(`    📸 Headshot found`);
     }
 
     // Extract number and position from header
@@ -101,117 +116,108 @@ async function enrichPlayerProfile(espnLink: string, existingFields: any): Promi
     if (numberPosition.number) enrichedData['ESPN Number'] = numberPosition.number;
     if (numberPosition.position) enrichedData['ESPN Position'] = numberPosition.position;
 
-    // Extract player status (active/inactive)
+    // Extract player status
     const status = await page.evaluate(() => {
-      const statusEl = (document as any).querySelector('.PlayerHeader__Status, .status-text');
+      const statusEl = (document as any).querySelector('.TextStatus');
       return statusEl?.textContent?.trim() || 'Active';
     }).catch(() => 'Active');
-    enrichedData['ESPN Player Status'] = status;
+    if (status !== 'Active') {
+      enrichedData['ESPN Player Status'] = status;
+    }
 
-    // Extract biographical information
+    // Extract biographical information from bio list
     const bioData: { [key: string]: string } = await page.evaluate(() => {
       const bioItems: { [key: string]: string } = {};
       
-      // Find all bio list items
-      const bioList = (document as any).querySelectorAll('.PlayerHeader__Bio_List li, .player-bio li');
+      const bioList = (document as any).querySelectorAll('.PlayerHeader__Bio_List li');
       bioList.forEach((item: any) => {
         const text = item.textContent?.trim() || '';
         
-        // Parse different bio fields
-        if (text.toLowerCase().includes('age:') || text.match(/^Age\s+\d+/i)) {
-          bioItems.age = text.replace(/Age:?/i, '').trim();
-        } else if (text.toLowerCase().includes('born:')) {
-          // Calculate age from birthdate if available
-          const dateMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-          if (dateMatch) {
-            const birthDate = new Date(dateMatch[1]);
-            const today = new Date();
-            const age = Math.floor((today.getTime() - birthDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-            bioItems.age = age.toString();
-          }
-        } else if (text.toLowerCase().includes('height:') || text.match(/^\d+'\d+"/)) {
-          bioItems.height = text.replace(/Height:?/i, '').trim();
-        } else if (text.toLowerCase().includes('weight:') || text.match(/^\d+\s*(lbs?|pounds?)/i)) {
-          bioItems.weight = text.replace(/Weight:?/i, '').replace(/lbs?|pounds?/i, '').trim();
-        } else if (text.toLowerCase().includes('college:')) {
+        // Parse HT/WT: "HT/WT2.11 m, 110 kg"
+        if (text.startsWith('HT/WT')) {
+          const htwtText = text.replace('HT/WT', '').trim();
+          const parts = htwtText.split(',');
+          if (parts[0]) bioItems.height = parts[0].trim();
+          if (parts[1]) bioItems.weight = parts[1].trim();
+        }
+        // Parse Birthdate: "Birthdate6/12/1994 (31)"
+        else if (text.startsWith('Birthdate')) {
+          const ageMatch = text.match(/\((\d+)\)/);
+          if (ageMatch) bioItems.age = ageMatch[1];
+        }
+        // Parse College if mentioned
+        else if (text.toLowerCase().includes('college:')) {
           bioItems.college = text.replace(/College:?/i, '').trim();
-        } else if (text.toLowerCase().includes('school:')) {
-          bioItems.college = text.replace(/School:?/i, '').trim();
         }
       });
-
-      // Alternative selectors for bio data
-      if (!bioItems.height) {
-        const heightEl = (document as any).querySelector('[data-id="height"], .height-value');
-        if (heightEl) bioItems.height = heightEl.textContent?.trim() || '';
-      }
-      if (!bioItems.weight) {
-        const weightEl = (document as any).querySelector('[data-id="weight"], .weight-value');
-        if (weightEl) bioItems.weight = weightEl.textContent?.trim() || '';
-      }
-      if (!bioItems.college) {
-        const collegeEl = (document as any).querySelector('[data-id="college"], .college-value');
-        if (collegeEl) bioItems.college = collegeEl.textContent?.trim() || '';
-      }
 
       return bioItems;
     }).catch(() => ({}));
 
-    if (bioData.age) enrichedData['ESPN Age'] = bioData.age;
-    if (bioData.height) enrichedData['ESPN Height'] = bioData.height;
-    if (bioData.weight) enrichedData['ESPN Weight'] = bioData.weight + (bioData.weight.match(/\d+$/) ? ' lbs' : '');
-    if (bioData.college) enrichedData['ESPN College'] = bioData.college;
+    if (bioData.age) {
+      enrichedData['ESPN Age'] = bioData.age;
+      console.log(`    📊 Age: ${bioData.age}`);
+    }
+    if (bioData.height) {
+      enrichedData['ESPN Height'] = bioData.height;
+      console.log(`    📊 Height: ${bioData.height}`);
+    }
+    if (bioData.weight) {
+      enrichedData['ESPN Weight'] = bioData.weight + (bioData.weight.match(/\d+$/) ? ' lbs' : '');
+      console.log(`    📊 Weight: ${bioData.weight}`);
+    }
+    if (bioData.college) {
+      enrichedData['ESPN College'] = bioData.college;
+      console.log(`    📊 College: ${bioData.college}`);
+    }
+    
+    // Debug: Log what bio data was found
+    console.log(`    🔍 Bio data found:`, bioData);
 
-    // Extract career highlights/awards
+    // Navigate to bio page for career highlights and history
+    const bioUrl = espnLink.replace('/player/_/', '/player/bio/_/');
+    console.log(`    Navigating to bio page: ${bioUrl}`);
+    
+    await page.goto(bioUrl, {
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    }).catch(() => {
+      console.log('    Bio page load timed out, continuing...');
+    });
+
+    // Extract career highlights from bio page
     const careerHighlights = await page.evaluate(() => {
       const highlights: string[] = [];
       
-      // Look for awards section
-      const awardsSection = (document as any).querySelector('.player-awards, .PlayerAwards, [class*="Awards"]');
-      if (awardsSection) {
-        const awards = awardsSection.querySelectorAll('.award-item, .award, li');
-        awards.forEach((award: any) => {
-          const text = award.textContent?.trim();
-          if (text) highlights.push(text);
-        });
-      }
-
-      // Look for accolades
-      const accoladesSection = (document as any).querySelector('.accolades, .player-accolades');
-      if (accoladesSection) {
-        const items = accoladesSection.querySelectorAll('li, .accolade');
-        items.forEach((item: any) => {
-          const text = item.textContent?.trim();
-          if (text && !highlights.includes(text)) highlights.push(text);
-        });
-      }
+      const highlightItems = (document as any).querySelectorAll('.Career__Highlights__Item');
+      highlightItems.forEach((item: any) => {
+        const content = item.querySelector('.Career__Highlights__Item__Content');
+        const title = content?.querySelector('.clr-black')?.textContent?.trim();
+        const years = content?.querySelector('.clr-gray-05')?.textContent?.trim();
+        if (title) {
+          highlights.push(years ? `${title} (${years})` : title);
+        }
+      });
 
       return highlights;
     }).catch(() => []);
 
     if (careerHighlights.length > 0) {
       enrichedData['ESPN Career Highlights'] = careerHighlights.join('\n');
+      console.log(`    🏆 Career Highlights: ${careerHighlights.length} awards found`);
     }
 
-    // Extract career history/experience
+    // Extract career history from bio page
     const careerHistory = await page.evaluate(() => {
       const history: string[] = [];
       
-      // Look for experience/team history section
-      const experienceSection = (document as any).querySelector('.player-experience, .PlayerExperience, [class*="Experience"]');
-      if (experienceSection) {
-        const teams = experienceSection.querySelectorAll('.team-item, .experience-item, li');
-        teams.forEach((team: any) => {
-          const text = team.textContent?.trim();
-          if (text) history.push(text);
-        });
-      }
-
-      // Alternative: look for team history
-      const teamHistory = (document as any).querySelectorAll('.team-history li, .career-history li');
-      teamHistory.forEach((item: any) => {
-        const text = item.textContent?.trim();
-        if (text && !history.includes(text)) history.push(text);
+      const historyItems = (document as any).querySelectorAll('.Career__History__Item');
+      historyItems.forEach((item: any) => {
+        const teamName = item.querySelector('.clr-black')?.textContent?.trim();
+        const years = item.querySelector('.clr-gray-05')?.textContent?.trim();
+        if (teamName && years) {
+          history.push(`${teamName}: ${years}`);
+        }
       });
 
       return history;
@@ -219,6 +225,7 @@ async function enrichPlayerProfile(espnLink: string, existingFields: any): Promi
 
     if (careerHistory.length > 0) {
       enrichedData['ESPN Career History'] = careerHistory.join('\n');
+      console.log(`    📜 Career History: ${careerHistory.length} teams found`);
     }
 
     // Track which fields were updated
