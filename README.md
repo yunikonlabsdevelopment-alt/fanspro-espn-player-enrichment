@@ -26,22 +26,29 @@ The script extracts data from two ESPN pages:
 
 ## Fields Extracted
 
+All data is extracted from structured **Bio__Item** elements on the bio page for consistency and reliability.
+
 ### Basic Information
-- **ESPN Team**: Current team
+- **ESPN Team**: Full team name (e.g., "Houston Rockets")
 - **ESPN Headshot**: Player headshot image URL
-- **ESPN Number**: Jersey number
-- **ESPN Position**: Playing position
-- **ESPN Player Status**: Active/Inactive/Retired status
+- **ESPN Number**: Jersey number (e.g., "7")
+- **ESPN Position**: Playing position (Forward, Guard, Center)
+- **ESPN Player Status**: Title case (Active, Out, etc.)
 
 ### Career Information
-- **ESPN Career Highlights**: Notable achievements and awards
-- **ESPN Career History**: Complete team history
+- **ESPN Career Highlights**: Formatted as `YEAR | Award` (one per line)
+  - Example: `2024 | All-NBA 1st Team`
+- **ESPN Career History**: Formatted as `YEAR | Team` (one per line)
+  - Example: `2025 | Houston Rockets`
 
 ### Biographical Data
-- **ESPN Age**: Current age
-- **ESPN Height**: Height (ft-in format)
-- **ESPN Weight**: Weight in pounds
+- **ESPN Age**: Current age (e.g., "37")
+- **ESPN Height**: Height in centimeters (e.g., "211")
+- **ESPN Weight**: Weight in kilograms (e.g., "110")
 - **ESPN College**: College/University attended
+- **ESPN Birthplace**: City, State/Country (e.g., "Suitland, MD")
+- **ESPN Birthdate**: ISO format date (e.g., "1988-09-29")
+- **ESPN Draft Info**: Draft details (e.g., "2007: Rd 1, Pk 2 (SEA)")
 
 ### Metadata
 - **ESPN Data Status**: Updated/Complete/Not Found/Error
@@ -102,20 +109,27 @@ The script runs automatically every Monday at 2:00 AM UTC via GitHub Actions. Co
 2. **Extract Main Page Data**: For each player:
    - Navigates to ESPN player page with Puppeteer
    - Waits for page to fully load (networkidle2)
-   - Extracts team, headshot, status, number, position
-   - Parses bio items (height, weight, age from structured list)
-3. **Extract Bio Page Data**:
+   - Extracts headshot, number, and college (if available)
+3. **Extract Bio Page Data** (All fields from structured Bio__Item elements):
    - Navigates to bio page (`/player/bio/_/`)
-   - Extracts career highlights (awards with years)
-   - Extracts career history (teams with tenure)
-4. **Track Changes**: Compares new data against existing Airtable data
-5. **Update Status**: 
+   - Extracts from labeled Bio__Item elements:
+     - Team (full name), Position, HT/WT, Birthdate, Age
+     - Draft Info, Birthplace, College
+   - Extracts career highlights (formatted: YEAR | Award)
+   - Extracts career history (formatted: YEAR | Team)
+4. **Format Data**:
+   - Converts height to cm (211)
+   - Extracts weight as number (110)
+   - Formats birthdate to ISO (1988-09-29)
+   - Converts status to title case (Active, Out)
+5. **Track Changes**: Compares new data against existing Airtable data
+6. **Update Status**: 
    - **Updated**: New data differs from existing data
    - **Complete**: No changes detected
    - **Not Found**: 404 error (player page doesn't exist)
    - **Error**: Other errors during extraction
-6. **Batch Updates**: Updates Airtable every 10 records to optimize API usage
-7. **Detailed Logging**: Tracks specific fields changed in "ESPN Updates" column
+7. **Batch Updates**: Updates Airtable every 10 records to optimize API usage
+8. **Detailed Logging**: Tracks specific fields changed in "ESPN Updates" column
 
 ## Error Handling
 
