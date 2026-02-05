@@ -1,0 +1,28 @@
+{
+  "name": "fanspro-espn-player-enrichment",
+  "version": "1.0.0",
+  "description": "ESPN NBA player data enrichment for Airtable",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "test": "npm run build && npm run start"
+  },
+  "keywords": [
+    "espn",
+    "nba",
+    "airtable",
+    "scraping"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "airtable": "^0.12.2",
+    "puppeteer": "^23.11.1",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}
