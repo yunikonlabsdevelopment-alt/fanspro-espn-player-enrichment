@@ -87,6 +87,18 @@ async function updateDevTracking(
     // Prepend new details to existing ones
     const updatedDetails = existingDetails ? `${runDetails}\n${existingDetails}` : runDetails;
     
+    const updateFields: any = {
+      'Run Status': status,
+      'Records Todo': recordsTodo,
+      'Records Done': recordsDone,
+      'Run Details': updatedDetails
+    };
+    
+    // Add Last Run timestamp when completing
+    if (status === 'Complete') {
+      updateFields['Last Run'] = new Date().toISOString();
+    }
+    
     await fetch(
       `https://api.airtable.com/v0/${DEV_BASE_ID}/${DEV_TABLE_ID}/${DEV_RECORD_ID}`,
       {
@@ -95,14 +107,7 @@ async function updateDevTracking(
           'Authorization': `Bearer ${AIRTABLE_TOKEN}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          fields: {
-            'Run Status': status,
-            'Records Todo': recordsTodo,
-            'Records Done': recordsDone,
-            'Run Details': updatedDetails
-          }
-        })
+        body: JSON.stringify({ fields: updateFields })
       }
     );
   } catch (error) {
