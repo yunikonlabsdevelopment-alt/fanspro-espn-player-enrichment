@@ -1,6 +1,8 @@
 name: ESPN Player Enrichment
 
 on:
+  repository_dispatch:
+    types: [enrich-players, enrich-single-player]
   schedule:
     # Run every Monday at 2:00 AM UTC
     - cron: '0 2 * * 1'
@@ -30,4 +32,7 @@ jobs:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           AIRTABLE_PLAYERS_TABLE_ID: ${{ secrets.AIRTABLE_PLAYERS_TABLE_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TODOIST_TOKEN: ${{ secrets.TODOIST_TOKEN }}
+          TODOIST_PROJECT_ID: ${{ secrets.TODOIST_PROJECT_ID }}
         run: npm start

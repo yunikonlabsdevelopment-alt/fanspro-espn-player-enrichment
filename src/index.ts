@@ -1,6 +1,25 @@
 import Airtable from 'airtable';
 import puppeteer from 'puppeteer';
 
+// Dev tracking configuration
+const DEV_BASE_ID = 'appvOK60xuHCw3Fdz';
+const DEV_TABLE_ID = 'tblL3VDqpRQxWzYCc';
+const DEV_RECORD_ID = 'rec8oGLTdpOonJ425';
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+const TODOIST_TOKEN = process.env.TODOIST_TOKEN;
+const TODOIST_PROJECT_ID = process.env.TODOIST_PROJECT_ID || '2340420832';
+
+function formatDateTime(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'pm' : 'am';
+  hours = hours % 12 || 12;
+  return `${year}-${month}-${day} ${hours}:${minutes}${ampm}`;
+}
+
 // Airtable configuration
 const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN!;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
@@ -9,6 +28,87 @@ const ESPN_VIEW_ID = 'viwExtQmSJeSQR48C'; // ESPN Data view
 
 // Initialize Airtable
 const base = new Airtable({ apiKey: AIRTABLE_TOKEN }).base(AIRTABLE_BASE_ID);
+
+async function sendSlackMessage(message: string): Promise<void> {
+  if (!SLACK_WEBHOOK_URL) return;
+  try {
+    await fetch(SLACK_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: message })
+    });
+  } catch (error) {
+    console.error('Failed to send Slack message:', error);
+  }
+}
+
+async function createTodoistTask(title: string, description: string): Promise<void> {
+  if (!TODOIST_TOKEN) return;
+  try {
+    await fetch('https://api.todoist.com/rest/v2/tasks', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TODOIST_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: title,
+        description: description,
+        project_id: TODOIST_PROJECT_ID,
+        priority: 4
+      })
+    });
+  } catch (error) {
+    console.error('Failed to create Todoist task:', error);
+  }
+}
+
+async function updateDevTracking(
+  status: 'Running' | 'Complete',
+  recordsTodo: number,
+  recordsDone: number,
+  runDetails: string
+): Promise<void> {
+  if (!AIRTABLE_TOKEN) return;
+  try {
+    // First, get the existing Run Details
+    const getResponse = await fetch(
+      `https://api.airtable.com/v0/${DEV_BASE_ID}/${DEV_TABLE_ID}/${DEV_RECORD_ID}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${AIRTABLE_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    const existingRecord: any = await getResponse.json();
+    const existingDetails = existingRecord.fields?.['Run Details'] || '';
+    
+    // Prepend new details to existing ones
+    const updatedDetails = existingDetails ? `${runDetails}\n${existingDetails}` : runDetails;
+    
+    await fetch(
+      `https://api.airtable.com/v0/${DEV_BASE_ID}/${DEV_TABLE_ID}/${DEV_RECORD_ID}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${AIRTABLE_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          fields: {
+            'Run Status': status,
+            'Records Todo': recordsTodo,
+            'Records Done': recordsDone,
+            'Run Details': updatedDetails
+          }
+        })
+      }
+    );
+  } catch (error) {
+    console.error('Failed to update dev tracking:', error);
+  }
+}
 
 interface EnrichedData {
   'ESPN Team'?: string;
@@ -423,7 +523,14 @@ async function main() {
       return;
     }
 
+    // Start tracking
+    const startDate = new Date();
+    const runDetails = `${formatDateTime(startDate)} - Running - Records to do (${players.length})`;
+    await updateDevTracking('Running', players.length, 0, runDetails);
+    await sendSlackMessage(`🚀 *ESPN Player Enrichment Started*\nRecords: ${players.length}\nTime: ${formatDateTime(startDate)}`);
+
     const batchUpdates: Array<{ id: string; fields: EnrichedData }> = [];
+    let processedCount = 0;
 
     for (let i = 0; i < players.length; i++) {
       const player = players[i];
@@ -445,6 +552,7 @@ async function main() {
           id: player.id,
           fields: enrichedData
         });
+        processedCount++;
 
         // Update every 10 records or at the end
         if (batchUpdates.length === 10 || i === players.length - 1) {
@@ -462,10 +570,23 @@ async function main() {
       }
     }
 
+    // Complete tracking
+    const endDate = new Date();
+    const completeDetails = `${formatDateTime(endDate)} - Complete - Processed ${processedCount} records`;
+    await updateDevTracking('Complete', 0, processedCount, completeDetails);
+    await sendSlackMessage(`✅ *ESPN Player Enrichment Complete*\nProcessed: ${processedCount}\nTime: ${formatDateTime(endDate)}`);
+
     console.log(`\n✨ Complete! Enriched ${players.length} players`);
 
   } catch (error) {
     console.error('Fatal error:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : '';
+    await sendSlackMessage(`❌ *ESPN Player Enrichment Failed*\nError: ${errorMsg}\nTime: ${formatDateTime(new Date())}`);
+    await createTodoistTask(
+      '🚨 ESPN Player Enrichment Error',
+      `Error: ${errorMsg}\n\nStack: ${errorStack}\n\nTime: ${new Date().toISOString()}`
+    );
     process.exit(1);
   }
 }
